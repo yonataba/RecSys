@@ -1,0 +1,21 @@
+
+model: UniSRec
+
+load_col:
+  inter: [user_id, item_id, timestamp]
+
+USER_ID_FIELD: user_id
+ITEM_ID_FIELD: item_id
+TIME_FIELD: timestamp
+
+alias_of_item_id: ~
+
+loss_type: CE
+train_neg_sample_args: ~
+
+learning_rate: 1e-4
+train_batch_size: 2048
+epochs: 5
+stopping_step: 2
+
+device: cuda

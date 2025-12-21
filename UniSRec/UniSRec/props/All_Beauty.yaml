@@ -1,0 +1,16 @@
+
+data_path: dataset/
+
+load_col:
+  inter: [user_id, item_id, timestamp]
+
+USER_ID_FIELD: user_id
+ITEM_ID_FIELD: item_id
+TIME_FIELD: timestamp
+
+train_neg_sample_args: ~
+
+topk: [10]
+metrics: [Recall]
+valid_metric: Recall@10
+eval_batch_size: 4096

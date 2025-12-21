@@ -1,0 +1,29 @@
+# Large datasets
+*.csv
+*.zip
+*.jsonl
+*.bin
+
+# Model checkpoints
+*.pth
+*.pt
+
+# Logs & outputs
+log/
+log_tensorboard/
+saved/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.env
+venv/
+# Datasets
+UniSRec/dataset/
+
+

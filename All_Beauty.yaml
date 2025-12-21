@@ -1,0 +1,47 @@
+field_separator: "\t"
+seq_separator: " "
+
+data_path: "./dataset"
+
+USER_ID_FIELD: user_id
+ITEM_ID_FIELD: item_id
+RATING_FIELD: rating
+TIME_FIELD: timestamp
+
+load_col:
+  inter: [user_id, item_id, rating, timestamp, history, split]
+  item: [item_id, item_text]
+
+history_field: history
+split_field: split
+
+# ----------------------
+# UniSRec model settings
+# ----------------------
+model: UniSRec
+
+TEXT_FIELD: item_text
+text_col:
+  item: [item_text]
+
+# UniSRec-specific configuration
+embedding_size: 64
+hidden_size: 64
+dropout_prob: 0.1
+augment_threshold: 0.1
+
+# Text embeddings (for Amazon datasets)
+embedding_source: glove.6B.100d
+
+# Training configuration
+loss_type: CE
+train_neg_sample_args: null
+eval_neg_sample_args: null
+
+epochs: 200
+train_batch_size: 4096
+learning_rate: 0.001
+
+metrics: [Recall, NDCG]
+topk: [10]
+valid_metric: "Recall@10"

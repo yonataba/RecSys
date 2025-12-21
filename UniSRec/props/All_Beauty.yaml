@@ -1,0 +1,33 @@
+data_path: UniSRec/dataset
+benchmark_filename: [train, valid]
+load_col:
+  inter: [user_id, item_id_list, item_length, item_id]
+
+# Tell RecBole how to interpret your columns
+alias_of_item_id: [item_id]
+alias_of_item_seq: [item_id_list]
+alias_of_item_seq_len: [item_length]
+
+USER_ID_FIELD: user_id
+ITEM_ID_FIELD: item_id
+TIME_FIELD: timestamp
+MAX_ITEM_LIST_LENGTH: 50
+min_user_inter: 1
+user_inter_num_interval: "[1,inf)"
+min_item_list_len: 1
+
+
+
+train_neg_sample_args: ~
+
+eval_args:
+  order: TO
+  mode:
+    valid: full
+
+
+eval_step: 1
+metrics: [Recall]
+topk: [10, 50]
+valid_metric: Recall@50
+eval_batch_size: 2048
