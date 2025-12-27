@@ -1,4 +1,3 @@
-data_path: UniSRec/dataset
 benchmark_filename: [train, valid]
 load_col:
   inter: [user_id, item_id_list, item_length, item_id]
@@ -14,7 +13,7 @@ TIME_FIELD: timestamp
 MAX_ITEM_LIST_LENGTH: 50
 min_user_inter: 1
 user_inter_num_interval: "[1,inf)"
-min_item_list_len: 1
+min_item_list_len: 2
 
 
 
