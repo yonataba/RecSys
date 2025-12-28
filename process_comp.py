@@ -144,7 +144,7 @@ def preprocess_rating(args):
 def get_user_item_from_ratings(ratings):
     users, items = set(), set()
     for line in ratings:
-        user, item, rating, time = line
+        user, item, rating, time, history = line
         users.add(user)
         items.add(item)
     return users, items
@@ -313,11 +313,60 @@ def filter_users_by_min_interactions(rating_inters, min_k=2):
 
 import collections
 
+# def generate_training_data(args, rating_inters, train_inter_num, valid_inter_num):
+#     print('Split dataset:')
+#     print(' Dataset:', args.dataset)
+
+#     # ---------- split by original dataset boundary ----------
+#     train_raw = rating_inters[:train_inter_num]
+#     valid_raw = rating_inters[train_inter_num:train_inter_num + valid_inter_num]
+#     test_raw  = rating_inters[train_inter_num + valid_inter_num:]
+
+#     # ---------- index mapping ----------
+#     user2index = {}
+#     item2index = {}
+
+#     def get_uid(u):
+#         if u not in user2index:
+#             user2index[u] = len(user2index)
+#         return user2index[u]
+
+#     def get_iid(i):
+#         if i not in item2index:
+#             item2index[i] = len(item2index)
+#         return item2index[i]
+
+#     # ---------- containers ----------
+#     train_inters = collections.defaultdict(list)
+#     valid_inters = collections.defaultdict(list)
+#     test_inters  = collections.defaultdict(list)
+
+#     # ---------- helper ----------
+#     def add_to(split_dict, inters):
+#         for user, item, rating, timestamp in inters:
+#             u_idx = get_uid(user)
+#             i_idx = get_iid(item)
+#             ts = float(timestamp)
+#             # split_dict[u_idx].append((i_idx, ts))
+#             split_dict[user].append((item, ts))
+
+#     # ---------- populate ----------
+#     add_to(train_inters, train_raw)
+#     add_to(valid_inters, valid_raw)
+#     add_to(test_inters,  test_raw)
+
+#     # ---------- sort by timestamp per user (VERY IMPORTANT) ----------
+#     for d in (train_inters, valid_inters, test_inters):
+#         for u in d:
+#             d[u].sort(key=lambda x: x[1])
+
+#     return train_inters, valid_inters, test_inters, user2index, item2index
+
 def generate_training_data(args, rating_inters, train_inter_num, valid_inter_num):
     print('Split dataset:')
     print(' Dataset:', args.dataset)
 
-    # ---------- split by original dataset boundary ----------
+    # ---------- split ----------
     train_raw = rating_inters[:train_inter_num]
     valid_raw = rating_inters[train_inter_num:train_inter_num + valid_inter_num]
     test_raw  = rating_inters[train_inter_num + valid_inter_num:]
@@ -337,31 +386,61 @@ def generate_training_data(args, rating_inters, train_inter_num, valid_inter_num
         return item2index[i]
 
     # ---------- containers ----------
+    # train / valid: user -> list of (history_items, target_item)
     train_inters = collections.defaultdict(list)
     valid_inters = collections.defaultdict(list)
+
+    # test: user -> list of history_items
     test_inters  = collections.defaultdict(list)
 
-    # ---------- helper ----------
-    def add_to(split_dict, inters):
-        for user, item, rating, timestamp in inters:
-            u_idx = get_uid(user)
-            i_idx = get_iid(item)
-            ts = float(timestamp)
-            # split_dict[u_idx].append((i_idx, ts))
-            split_dict[user].append((item, ts))
+    # ---------- helpers ----------
+    def parse_history(h):
+        if isinstance(h, str):
+            return h.split()
+        return list(h)
 
-    # ---------- populate ----------
-    add_to(train_inters, train_raw)
-    add_to(valid_inters, valid_raw)
-    add_to(test_inters,  test_raw)
+    # ---------- populate train ----------
+    for row in train_raw:
+        # expected: user, parent_asin, rating, timestamp, history
+        user, target, _, _, history = row
 
-    # ---------- sort by timestamp per user (VERY IMPORTANT) ----------
-    for d in (train_inters, valid_inters, test_inters):
-        for u in d:
-            d[u].sort(key=lambda x: x[1])
+        get_uid(user)
+        hist_items = parse_history(history)
+
+        # index everything
+        for i in hist_items:
+            get_iid(i)
+        get_iid(target)
+
+        train_inters[user].append((hist_items, target))
+
+    # ---------- populate valid ----------
+    for row in valid_raw:
+        user, target, _, _, history = row
+
+        get_uid(user)
+        hist_items = parse_history(history)
+
+        for i in hist_items:
+            get_iid(i)
+        get_iid(target)
+
+        valid_inters[user].append((hist_items, target))
+
+    # ---------- populate test ----------
+    for row in test_raw:
+        # expected: user, history   (adjust if schema differs)
+        user, last_item, rating, ts, history = row
+
+        get_uid(user)
+        hist_items = parse_history(history)
+
+        for i in hist_items:
+            get_iid(i)
+
+        test_inters[user].append(hist_items)
 
     return train_inters, valid_inters, test_inters, user2index, item2index
-
 
 
 def load_unit2index(file):
@@ -398,7 +477,7 @@ def generate_item_embedding(args, item_text_list, item2index, tokenizer, model, 
             text = ""
 
     embeddings = []
-    start, batch_size = 0, 256
+    start, batch_size = 0, 64
     while start < len(order_texts):
         # sentences = order_texts[start: start + batch_size]
         sentences = ["" if s is None else str(s) for s in order_texts[start: start + batch_size]]
@@ -447,51 +526,111 @@ def generate_item_embedding(args, item_text_list, item2index, tokenizer, model, 
     embeddings.tofile(file)
 
 
-def convert_to_atomic_files(args, train_data, valid_data, test_data):
-    print('Convert dataset: ')
-    print(' Dataset: ', args.dataset)
-    # uid_list = []
-    # uid_list.extend(train_data.keys())
-    # uid_list.extend(valid_data.keys())
-    # uid_list.extend(test_data.keys())
-    # uid_list.sort(key=lambda t: int(t))
-    def write_inter_file(path, inter_dict):
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("user_id:token\titem_id:token\ttimestamp:float\n")
-            for u_idx, lst in inter_dict.items():
-                for i_idx, ts in lst:
-                    f.write(f"{u_idx}\t{i_idx}\t{ts}\n")
-    write_inter_file(os.path.join(args.output_path, args.dataset, f'{args.dataset}.train.inter'), train_data)
-    write_inter_file(os.path.join(args.output_path, args.dataset, f'{args.dataset}.valid.inter'), valid_data)
-    write_inter_file(os.path.join(args.output_path, args.dataset, f'{args.dataset}.test.inter'), test_data)
+# def convert_to_atomic_files(args, train_data, valid_data, test_data):
+#     print('Convert dataset: ')
+#     print(' Dataset: ', args.dataset)
+#     def write_inter_file(path, inter_dict):
+#         with open(path, "w", encoding="utf-8") as f:
+#             f.write("user_id:token\titem_id:token\ttimestamp:float\n")
+#             for u_idx, lst in inter_dict.items():
+#                 for i_idx, ts in lst:
+#                     f.write(f"{u_idx}\t{i_idx}\t{ts}\n")
+#     write_inter_file(os.path.join(args.output_path, args.dataset, f'{args.dataset}.train.inter'), train_data)
+#     write_inter_file(os.path.join(args.output_path, args.dataset, f'{args.dataset}.valid.inter'), valid_data)
+#     write_inter_file(os.path.join(args.output_path, args.dataset, f'{args.dataset}.test.inter'), test_data)
 
-    # with open(os.path.join(args.output_path, args.dataset, f'{args.dataset}.train.inter'), 'w') as file:
-    #     file.write('user_id:token\titem_id_list:token_seq\titem_id:token\ttimestamp:float\n')
+def convert_to_atomic_files(
+    args,
+    train_inters,   # dict[user] -> list[(history_items, target_item)]
+    valid_inters,   # dict[user] -> list[(history_items, target_item)]
+    test_inters,    # dict[user] -> list[history_items]
+    max_len=50
+):
+    import os
 
-    #     for uid in uid_list:
-    #         inters = train_data[uid]   # [(item, ts), ...]
-    #         for t in range(1, len(inters)):
-    #             target_item, target_ts = inters[t]
-    #             hist_items = [str(i) for i, _ in inters[:t]][-50:]
-    #             file.write(f'{uid}\t{" ".join(hist_items)}\t{target_item}\t{target_ts}\n')
+    print("Convert dataset:")
+    print(" Dataset:", args.dataset)
 
-    # with open(os.path.join(args.output_path, args.dataset, f'{args.dataset}.valid.inter'), 'w') as file:
-    #     file.write('user_id:token\titem_id_list:token_seq\titem_id:token\ttimestamp:float\n')
+    out_dir = os.path.join(args.output_path, args.dataset)
+    os.makedirs(out_dir, exist_ok=True)
 
-    #     for uid in uid_list:
-    #         hist = train_data[uid][-50:]
-    #         hist_items = [str(i) for i, _ in hist]
-    #         target_item, target_ts = valid_data[uid]
-    #         file.write(f'{uid}\t{" ".join(hist_items)}\t{target_item}\t{target_ts}\n')
+    HEADER = "user_id:token\titem_id_list:token_seq\titem_id:token\n"
 
-    # with open(os.path.join(args.output_path, args.dataset, f'{args.dataset}.test.inter'), 'w') as file:
-    #     file.write('user_id:token\titem_id_list:token_seq\titem_id:token\ttimestamp:float\n')
+    def trim(hist):
+        return hist[-max_len:]
 
-    #     for uid in uid_list:
-    #         hist = (train_data[uid] + [valid_data[uid]])[-50:]
-    #         hist_items = [str(i) for i, _ in hist]
-    #         target_item, target_ts = test_data[uid]
-    #         file.write(f'{uid}\t{" ".join(hist_items)}\t{target_item}\t{target_ts}\n')
+    # ======================================================
+    # TRAIN
+    # ======================================================
+    with open(os.path.join(out_dir, f"{args.dataset}.train.inter"), "w", encoding="utf-8") as f:
+        f.write(HEADER)
+
+        for user, interactions in train_inters.items():
+            for history, target in interactions:
+                history = trim(history)
+                if not history:
+                    continue
+
+                f.write(
+                    f"{user}\t"
+                    f"{' '.join(history)}\t"
+                    f"{target}\n"
+                )
+
+    # ======================================================
+    # VALID
+    # ======================================================
+    with open(os.path.join(out_dir, f"{args.dataset}.valid.inter"), "w", encoding="utf-8") as f:
+        f.write(HEADER)
+
+        for user, interactions in valid_inters.items():
+            for history, target in interactions:
+                history = trim(history)
+                if not history:
+                    continue
+
+                f.write(
+                    f"{user}\t"
+                    f"{' '.join(history)}\t"
+                    f"{target}\n"
+                )
+
+    # ======================================================
+    # BUILD (vocab / embedding coverage only)
+    # ======================================================
+    with open(os.path.join(out_dir, f"{args.dataset}.build.inter"), "w", encoding="utf-8") as f:
+        f.write(HEADER)
+
+        # ---- include train + valid (supervised) ----
+        for split in (train_inters, valid_inters):
+            for user, interactions in split.items():
+                for history, target in interactions:
+                    history = trim(history)
+                    if not history:
+                        continue
+
+                    f.write(
+                        f"{user}\t"
+                        f"{' '.join(history)}\t"
+                        f"{target}\n"
+                    )
+
+        # ---- include kaggle test (history only) ----
+        for user, histories in test_inters.items():
+            for history in histories:
+                history = trim(history)
+                if not history:
+                    continue
+
+                pseudo_target = history[-1]           # safe: already observed
+                hist2 = history[:-1] if len(history) > 1 else history
+
+                f.write(
+                    f"{user}\t"
+                    f"{' '.join(hist2)}\t"
+                    f"{pseudo_target}\n"
+                )
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -520,7 +659,8 @@ def load_interactions_from_csv(file_path):
             user = parts[col['user_id']]
             item = parts[col['parent_asin']]
             time = int(parts[col['timestamp']])
-            inters.append((user, item, 1.0, time))
+            seq = parts[col['history']]
+            inters.append((user, item, 1.0, time, seq))
     return inters
 
 def load_interactions_from_test_csv(file_path):
@@ -534,9 +674,10 @@ def load_interactions_from_test_csv(file_path):
             history = parts[col['history']]
             items = history.strip().split(' ')
             user = parts[col['id']]
-            for ind, item in enumerate(items):
-                time = ind + 1
-                inters.append((user, item, 1.0, time))
+            inters.append((user, items[-1], 1.0, len(items), history))
+            # for ind, item in enumerate(items):
+            #     time = ind + 1
+            #     inters.append((user, item, 1.0, time))
     return inters
 
 def _flatten_text(x):
@@ -582,6 +723,9 @@ if __name__ == '__main__':
     train_inters, valid_inters, test_inters, user2index, item2index = \
         generate_training_data(args, rating_inters, train_inter_num, valid_inter_num)
     print("train_inters sample:", list(train_inters.items())[:2])
+    print("Train users:", len(train_inters))
+    print("Avg interactions per train user:",
+        sum(len(v) for v in train_inters.values()) / len(train_inters))
     # device & plm initialization
     device = set_device(args.gpu_id)
     args.device = device
@@ -591,13 +735,6 @@ if __name__ == '__main__':
     # create output dir
     check_path(os.path.join(args.output_path, args.dataset))
 
-    # generate PLM emb and save to file
-    generate_item_embedding(args, item_text_list, item2index, 
-                            plm_tokenizer, plm_model, word_drop_ratio=-1)
-    # pre-stored word drop PLM embs
-    if args.word_drop_ratio > 0:
-        generate_item_embedding(args, item_text_list, item2index, 
-                                plm_tokenizer, plm_model, word_drop_ratio=args.word_drop_ratio)
 
     # save interaction sequences into atomic files
     convert_to_atomic_files(args, train_inters, valid_inters, test_inters)
@@ -608,3 +745,11 @@ if __name__ == '__main__':
     print("item2index sample:", list(item2index.items())[:2])
     write_remap_index(user2index, os.path.join(args.output_path, args.dataset, f'{args.dataset}.user2index'))
     write_remap_index(item2index, os.path.join(args.output_path, args.dataset, f'{args.dataset}.item2index'))
+
+    # generate PLM emb and save to file
+    generate_item_embedding(args, item_text_list, item2index, 
+                            plm_tokenizer, plm_model, word_drop_ratio=-1)
+    # pre-stored word drop PLM embs
+    if args.word_drop_ratio > 0:
+        generate_item_embedding(args, item_text_list, item2index, 
+                                plm_tokenizer, plm_model, word_drop_ratio=args.word_drop_ratio)
